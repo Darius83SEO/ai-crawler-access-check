@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Local test / sample artifacts (regenerated on demand)
+sample_scorecard.html
+sample_scorecard.png
+_*.html
+_*.png
+esempio card.png

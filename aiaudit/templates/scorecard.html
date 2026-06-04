@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Visibility Scorecard — {{ domain }}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+  :root{
+    --brand:#317fd2; --brand-dark:#066aab; --ink:#1a2b42; --muted:#64748b;
+    --line:#e6edf5; --bg:#f4f7fb; --card:#ffffff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Montserrat',system-ui,-apple-system,Segoe UI,sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.5;padding:28px 18px}
+  .sheet{max-width:880px;margin:0 auto;background:var(--card);border-radius:18px;
+         overflow:hidden;box-shadow:0 12px 40px rgba(20,40,80,.10)}
+  /* Header */
+  .head{background:linear-gradient(135deg,var(--brand) 0%,var(--brand-dark) 100%);
+        color:#fff;padding:30px 34px;display:flex;justify-content:space-between;align-items:center;gap:24px}
+  .head .eyebrow{font-size:11px;letter-spacing:2.5px;text-transform:uppercase;opacity:.85;font-weight:600}
+  .head h1{font-size:26px;font-weight:800;margin:4px 0 8px;letter-spacing:-.4px}
+  .head .domain{font-size:16px;font-weight:600;opacity:.95}
+  .head .meta{font-size:12px;opacity:.8;margin-top:6px}
+  /* Score donut */
+  .gauge{flex:0 0 auto;text-align:center}
+  .gauge svg{display:block}
+  .grade-badge{display:inline-block;margin-top:6px;padding:4px 14px;border-radius:20px;
+               background:rgba(255,255,255,.20);font-size:12px;font-weight:700;letter-spacing:.5px}
+  /* Summary strip */
+  .strip{display:flex;gap:0;border-bottom:1px solid var(--line)}
+  .strip div{flex:1;text-align:center;padding:14px 8px;border-right:1px solid var(--line)}
+  .strip div:last-child{border-right:none}
+  .strip .k{font-size:22px;font-weight:800}
+  .strip .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-top:2px}
+  /* Checks */
+  .body{padding:22px 26px}
+  .check{border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px;
+         border-left:5px solid var(--c)}
+  .check .top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .badge{width:26px;height:26px;border-radius:50%;background:var(--c);color:#fff;
+         display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:0 0 auto}
+  .check h3{font-size:15px;font-weight:700;flex:1}
+  .pill{font-size:11px;font-weight:700;color:var(--c);background:color-mix(in srgb,var(--c) 14%,#fff);
+        padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px}
+  .pts{font-size:12px;color:var(--muted);font-weight:600;margin-left:8px;white-space:nowrap}
+  .check .sum{font-size:13.5px;font-weight:600;margin:2px 0 10px}
+  .bar{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin-bottom:10px}
+  .bar i{display:block;height:100%;background:var(--c)}
+  .details{font-size:12.5px;color:#42526b;margin:6px 0}
+  .details div{margin:2px 0}
+  .fix{font-size:12.5px;background:#f0f6ff;border-radius:9px;padding:9px 12px;margin-top:8px;
+       color:#234;border:1px solid #dceaff}
+  .fix b{color:var(--brand-dark)}
+  .layer-chip{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+              padding:2px 8px;border-radius:6px;background:#eef2f7;color:#586b85}
+  /* Two layers */
+  .section-title{font-size:16px;font-weight:800;color:var(--ink);margin:8px 2px 4px}
+  .section-sub{font-size:12.5px;color:var(--muted);margin:0 2px 14px}
+  .layers{display:flex;gap:14px;margin-bottom:18px}
+  .layer{flex:1;border:1px solid var(--line);border-radius:14px;padding:15px 16px;border-top:4px solid var(--c)}
+  .layer .lt{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+  .layer .lt h4{font-size:14px;font-weight:700}
+  .layer .lpill{font-size:10px;font-weight:700;color:#fff;background:var(--c);padding:2px 9px;border-radius:20px;
+                text-transform:uppercase;letter-spacing:.5px;margin-left:auto}
+  .layer .q{font-size:12px;color:var(--muted);font-style:italic;margin-bottom:8px}
+  .layer .feeds{font-size:11px;color:#7b8aa0;font-weight:600;margin-bottom:8px}
+  .layer .note{font-size:12.5px;color:#42526b;margin:3px 0}
+  /* Model table */
+  table.models{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px;
+               border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  table.models th{background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;
+                  text-align:left;padding:9px 12px;font-size:11px;letter-spacing:.6px;text-transform:uppercase}
+  table.models td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}
+  table.models tr:nth-child(even) td{background:#f9fbfe}
+  table.models .fam{font-weight:700;white-space:nowrap}
+  .lbadge{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+  .lbadge.dual{background:#e8f1fb;color:#066aab}
+  .lbadge.rag{background:#fff1e6;color:#c2410c}
+  /* Strategic plan */
+  .plan{background:#f7faff;border:1px solid #e1ecfa;border-radius:14px;padding:18px 20px;margin-top:6px}
+  .plan .headline{font-size:13.5px;font-weight:600;color:#234;margin-bottom:14px}
+  .rec{display:flex;gap:12px;padding:11px 0;border-top:1px dashed #d8e4f3}
+  .rec:first-of-type{border-top:none}
+  .rec .pr{flex:0 0 auto;align-self:flex-start;font-size:10px;font-weight:800;letter-spacing:.5px;
+           text-transform:uppercase;color:#fff;background:var(--c);padding:3px 9px;border-radius:6px;min-width:64px;text-align:center}
+  .rec .rc h4{font-size:13.5px;font-weight:700;margin-bottom:2px}
+  .rec .rc .act{font-size:12.5px;color:#3a4a61;margin-bottom:3px}
+  .rec .rc .imp{font-size:12px;color:#6b7a90}
+  .rec .rc .imp b{color:var(--brand-dark);font-weight:700}
+  /* Glossary */
+  .glossary{display:grid;gap:9px;margin-top:2px}
+  .gl{display:flex;gap:10px;align-items:flex-start;font-size:12.5px;color:#48576e}
+  .gl .gn{flex:0 0 auto;width:21px;height:21px;border-radius:50%;background:var(--brand);color:#fff;
+          font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .gl b{color:var(--ink)}
+  /* Footer */
+  .foot{padding:16px 26px 24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}
+  .foot b{color:var(--ink)}
+  @media print{body{background:#fff;padding:0}.sheet{box-shadow:none;border-radius:0;max-width:100%}}
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="head">
+      <div>
+        <div class="eyebrow">AI Visibility Audit · Training data is the new ranking factor</div>
+        <h1>AI Crawler Access Scorecard</h1>
+        <div class="domain">{{ domain }}</div>
+        <div class="meta">Generated {{ ran_at }} · 5-check audit (Common Crawl framework)</div>
+      </div>
+      <div class="gauge">
+        <svg width="132" height="132" viewBox="0 0 120 120">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.28)" stroke-width="12"/>
+          <circle cx="60" cy="60" r="52" fill="none" stroke="{{ score_color }}" stroke-width="12"
+                  stroke-linecap="round" stroke-dasharray="{{ dash }} 999" transform="rotate(-90 60 60)"/>
+          <circle cx="60" cy="60" r="44" fill="#ffffff"/>
+          <text x="60" y="58" text-anchor="middle" dominant-baseline="middle"
+                font-family="Montserrat, sans-serif" font-size="38" font-weight="800"
+                fill="{{ score_color }}">{{ score }}</text>
+          <text x="60" y="82" text-anchor="middle" dominant-baseline="middle"
+                font-family="Montserrat, sans-serif" font-size="12" font-weight="700"
+                fill="#64748b">/ 100</text>
+        </svg>
+        <div class="grade-badge">Grade {{ grade.grade }} · {{ grade.label }}</div>
+      </div>
+    </div>
+
+    <div class="strip">
+      <div><div class="k" style="color:#16a34a">{{ n_pass }}</div><div class="l">Passed</div></div>
+      <div><div class="k" style="color:#d97706">{{ n_warn }}</div><div class="l">Warnings</div></div>
+      <div><div class="k" style="color:#dc2626">{{ n_fail }}</div><div class="l">Failed</div></div>
+      <div><div class="k">{{ checks|length }}</div><div class="l">Checks</div></div>
+    </div>
+
+    <div class="body">
+      {% for c in checks %}
+      <div class="check" style="--c:{{ c.color }}">
+        <div class="top">
+          <div class="badge">{{ c.icon }}</div>
+          <h3>{{ loop.index }}. {{ c.title }}</h3>
+          {% if c.layer %}<span class="layer-chip">{{ c.layer }}</span>{% endif %}
+          <span class="pill">{{ c.status_label }}</span>
+          <span class="pts">{{ c.points }}/{{ c.weight }} pts</span>
+        </div>
+        <div class="sum">{{ c.summary }}</div>
+        <div class="bar"><i style="width:{{ c.pct }}%"></i></div>
+        {% if c.details %}
+        <div class="details">
+          {% for d in c.details %}<div>{{ d }}</div>{% endfor %}
+        </div>
+        {% endif %}
+        {% if c.remediation %}
+        <div class="fix"><b>Fix:</b> {{ c.remediation }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+
+      <div class="section-title">Two layers — a complete audit checks both</div>
+      <div class="section-sub">A site can be in a model's baked-in memory yet blocked from live
+        retrieval, or the reverse. These two reads are derived from the checks above.</div>
+      <div class="layers">
+        {% for key in ['parametric','retrieval'] %}{% set L = layers[key] %}
+        <div class="layer" style="--c:{{ L.color }}">
+          <div class="lt"><h4>{{ L.title }}</h4><span class="lpill">{{ L.label }}</span></div>
+          <div class="q">{{ L.question }}</div>
+          <div class="feeds">Fed by: {{ L.feeds }}</div>
+          {% for n in L.notes %}<div class="note">• {{ n }}</div>{% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="section-title">How the major models use these layers</div>
+      <div class="section-sub">Cutoff dates move with each release — confirm current figures in each
+        provider's docs. The pattern is what matters for visibility work.</div>
+      <table class="models">
+        <thead><tr><th>Model family</th><th>Knowledge source pattern</th><th>Layer emphasis</th></tr></thead>
+        <tbody>
+          {% for m in model_table %}
+          <tr>
+            <td class="fam">{{ m.emoji }} {{ m.family }}</td>
+            <td>{{ m.pattern }}</td>
+            <td><span class="lbadge {{ 'rag' if m.layer == 'RAG-first' else 'dual' }}">{{ m.layer }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="section-title">Strategic action plan</div>
+      <div class="section-sub">Prioritised by leverage — highest-impact, lowest-effort first.</div>
+      <div class="plan">
+        <div class="headline">{{ rec_headline }}</div>
+        {% for r in recommendations %}
+        <div class="rec" style="--c:{{ r.color }}">
+          <div class="pr">{{ r.priority }}</div>
+          <div class="rc">
+            <h4>{{ r.title }}</h4>
+            <div class="act">{{ r.action }}</div>
+            <div class="imp"><b>Why:</b> {{ r.impact }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="section-title">What each check measures</div>
+      <div class="glossary">
+        <div class="gl"><span class="gn">1</span><div><b>CCBot Access</b> — Can AI crawlers physically reach the site? Reads robots.txt and tests the edge/WAF (CCBot user agent vs a browser) for blocks.</div></div>
+        <div class="gl"><span class="gn">2</span><div><b>CC Index Coverage</b> — Is the domain actually in the Common Crawl archive — how many pages, and how recently captured?</div></div>
+        <div class="gl"><span class="gn">3</span><div><b>Harmonic Centrality</b> — How close the domain sits to the web's core in the CC Web Graph. Central domains get crawled deeper and more often (it sets crawl priority).</div></div>
+        <div class="gl"><span class="gn">4</span><div><b>Structured Data</b> — Is key Schema.org markup (Organization, page, author, breadcrumb) in the server HTML, so models can represent and attribute the entity?</div></div>
+        <div class="gl"><span class="gn">5</span><div><b>Server-Side Rendering</b> — Does the content exist in the raw HTML without JavaScript? Many AI crawlers don't run JS, so JS-only content is invisible to them.</div></div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <b>Method.</b> Five checks, most decisive first: (1) CCBot access — robots.txt + edge/WAF,
+      (2) Common Crawl Index coverage, (3) Harmonic Centrality in the CC Web Graph,
+      (4) Schema.org structured data, (5) server-side rendering. The old world was index &amp; rank;
+      the new world is train &amp; retrieve — if you're not in the crawl, you're not in the model.
+      Centrality data via the community CC Rank Checker (webgraph.metehan.ai); verify single data points
+      against official sources where a decision hinges on them.
+    </div>
+  </div>
+</body>
+</html>
