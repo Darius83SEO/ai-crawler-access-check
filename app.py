@@ -51,6 +51,26 @@ def _rate_limited() -> str:
 
 st.set_page_config(page_title="AI Access & Agent Audit", page_icon="🛰️", layout="centered")
 
+# Keep the app usable by anyone with the link, but out of search engines: inject
+# a robots noindex into the real page <head> (components run in a same-origin
+# srcdoc iframe, so window.parent.document is reachable). Height 0 = invisible.
+components.html(
+    """
+    <script>
+      try {
+        const d = window.parent.document;
+        if (!d.querySelector('meta[name=\"robots\"]')) {
+          const m = d.createElement('meta');
+          m.name = 'robots';
+          m.content = 'noindex, nofollow';
+          d.head.appendChild(m);
+        }
+      } catch (e) {}
+    </script>
+    """,
+    height=0,
+)
+
 st.markdown("""
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
