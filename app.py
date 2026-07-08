@@ -1,19 +1,55 @@
-"""AI Crawler Access Check — Streamlit front-end.
+"""AI Access & Agent Audit — Streamlit front-end.
 
-Enter a domain, run the five-check AI Visibility Audit, and get a polished
-scorecard you can show a client or download as a one-page HTML/PDF.
+Enter a domain, run the six-check audit, and get a polished scorecard you can
+show a client or download as a one-page HTML/PDF. It answers two questions in
+one: are you *retrievable* by the crawlers that train and feed the models, and
+are you *actionable* by the autonomous agents that navigate on a user's behalf?
 """
 
 from __future__ import annotations
 
+import threading
+import time
+from collections import deque
+
 import streamlit as st
 import streamlit.components.v1 as components
 
-from aiaudit.orchestrator import run_audit
+from aiaudit.orchestrator import run_audit, CHECKS
 from aiaudit.scorecard import render_html
 from aiaudit.verify import verify_ccbot_ip
 
-st.set_page_config(page_title="AI Crawler Access Check", page_icon="🛰️", layout="centered")
+N_CHECKS = len(CHECKS)
+
+# ── Abuse guards for the public deployment ────────────────────────────
+# Per session: keep one visitor from spamming distinct domains. Global: shield
+# the free third-party APIs (Common Crawl index, community centrality) from a
+# single container being hammered. Both are sliding windows; in-memory is fine
+# because each free host runs one container.
+_SESSION_MAX, _SESSION_WINDOW = 8, 300       # 8 audits / 5 min per session
+_GLOBAL_MAX, _GLOBAL_WINDOW = 40, 60         # 40 audits / min across all sessions
+_GLOBAL_HITS: deque = deque()
+_GLOBAL_LOCK = threading.Lock()
+
+
+def _rate_limited() -> str:
+    """Return a user-facing message if this request should be blocked, else ''."""
+    now = time.time()
+    hits = st.session_state.setdefault("_audit_hits", [])
+    hits[:] = [t for t in hits if now - t < _SESSION_WINDOW]
+    if len(hits) >= _SESSION_MAX:
+        wait = int(_SESSION_WINDOW - (now - hits[0]))
+        return f"You've run several audits in a row — give it about {wait}s and try again."
+    with _GLOBAL_LOCK:
+        while _GLOBAL_HITS and now - _GLOBAL_HITS[0] >= _GLOBAL_WINDOW:
+            _GLOBAL_HITS.popleft()
+        if len(_GLOBAL_HITS) >= _GLOBAL_MAX:
+            return "The tool is busy right now (protecting the free data sources) — try again in a minute."
+        _GLOBAL_HITS.append(now)
+    hits.append(now)
+    return ""
+
+st.set_page_config(page_title="AI Access & Agent Audit", page_icon="🛰️", layout="centered")
 
 st.markdown("""
 <style>
@@ -32,10 +68,11 @@ st.markdown("""
 
 st.markdown("""
 <div class="hero">
-  <div class="tag">Training data is the new ranking factor</div>
-  <h1>🛰️ AI Crawler Access Check</h1>
-  <div class="sub">Five checks, ~90 seconds. Is your site reachable by the crawlers that train
-  ChatGPT, Gemini, Claude &amp; Perplexity — and are you actually in the crawl?</div>
+  <div class="tag">Reachable for training &amp; retrieval · Navigable for AI agents</div>
+  <h1>🛰️ AI Access &amp; Agent Audit</h1>
+  <div class="sub">Six checks, ~90 seconds. Two questions in one: can the crawlers that train and
+  feed ChatGPT, Gemini, Claude &amp; Perplexity <b>reach and capture</b> your site — and can the
+  autonomous AI agents that act on a user's behalf <b>navigate and use</b> your pages?</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -53,14 +90,20 @@ CHECK_NAMES = {
     "centrality": "Harmonic Centrality",
     "structured_data": "Structured data",
     "rendering": "Server-side rendering",
+    "agentic": "Agentic readiness (AX tree + llms.txt)",
 }
 
 if run and domain.strip():
-    prog = st.progress(0, text="Running 5 checks in parallel…")
+    blocked = _rate_limited()
+    if blocked:
+        st.warning(blocked)
+        st.stop()
+
+    prog = st.progress(0, text=f"Running {N_CHECKS} checks in parallel…")
 
     def _progress(done, _name=""):
-        prog.progress(min(done, 5) / 5,
-                      text=(f"{done}/5 checks done…" if done < 5 else "Finishing…"))
+        prog.progress(min(done, N_CHECKS) / N_CHECKS,
+                      text=(f"{done}/{N_CHECKS} checks done…" if done < N_CHECKS else "Finishing…"))
 
     try:
         report = run_audit(domain, progress=_progress)
@@ -107,5 +150,6 @@ with st.sidebar:
         else:
             st.warning("Enter an IP.")
     st.divider()
-    st.caption("Based on Common Crawl's *AI Visibility Audit* field guide. "
-               "Centrality via the community CC Rank Checker.")
+    st.caption("Checks 1–5 (retrievability) follow Common Crawl's *AI Visibility Audit* field guide; "
+               "centrality via the community CC Rank Checker. Check 6 (agentic readiness) adds the "
+               "accessibility-tree + llms.txt read for autonomous AI agents.")

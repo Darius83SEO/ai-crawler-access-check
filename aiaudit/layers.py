@@ -36,12 +36,15 @@ MODEL_TABLE: List[Dict[str, str]] = [
 ]
 
 # Which layer(s) each check informs — shown as a chip on the check card.
+# "Agentic" is the emerging third layer: not whether AI can find/read you
+# (parametric + retrieval), but whether an autonomous agent can act on you.
 CHECK_LAYER = {
     "access": "Both",
     "index": "Parametric",
     "centrality": "Parametric",
     "structured": "Both",
     "rendering": "Both",
+    "agentic": "Agentic",
 }
 
 # Bots that perform live retrieval / answer-time fetches (vs CCBot = training).

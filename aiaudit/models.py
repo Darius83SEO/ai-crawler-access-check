@@ -1,4 +1,4 @@
-"""Result data structures and scoring for the AI Visibility Audit."""
+"""Result data structures and scoring for the AI Access & Agent Audit."""
 
 from __future__ import annotations
 

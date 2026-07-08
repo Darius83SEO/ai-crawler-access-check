@@ -1,4 +1,4 @@
-"""Run all five checks and assemble an AuditReport.
+"""Run all six checks and assemble an AuditReport.
 
 The checks are independent network calls, so they run concurrently (the slow
 third-party centrality API no longer serializes everything). Results are cached
@@ -12,8 +12,9 @@ import concurrent.futures
 import time
 from typing import Callable, List, Optional
 
-from .checks import cc_index, centrality, rendering, robots_waf, structured_data
+from .checks import agentic, cc_index, centrality, rendering, robots_waf, structured_data
 from .models import AuditReport, CheckResult, ERROR
+from .safety import assert_public_host
 from .util import normalize_domain
 
 # Order matters for display: most decisive to most strategic.
@@ -23,6 +24,7 @@ CHECKS: List[Callable[[str], CheckResult]] = [
     centrality.run,       # 3 · harmonic centrality (weight 15)
     structured_data.run,  # 4 · structured data (weight 15)
     rendering.run,        # 5 · server-side rendering (weight 15)
+    agentic.run,          # 6 · agentic readiness: AX tree + llms.txt (weight 10)
 ]
 
 # domain -> (expiry_epoch, AuditReport)
@@ -49,6 +51,10 @@ def run_audit(raw_domain: str,
     domain = normalize_domain(raw_domain)
     if not domain:
         raise ValueError("Empty or invalid domain.")
+
+    # SSRF guard: never let a public visitor point the fetchers at localhost,
+    # an internal service or the cloud metadata endpoint.
+    assert_public_host(domain)
 
     if not fresh:
         hit = _RESULTS.get(domain)

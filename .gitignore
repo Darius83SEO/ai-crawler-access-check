@@ -14,3 +14,6 @@ sample_scorecard.png
 _*.html
 _*.png
 esempio card.png
+
+# Local run logs
+*.log

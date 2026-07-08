@@ -54,6 +54,7 @@ class PageFetch:
     cc_fallback: bool = False            # raw_html came from the Common Crawl archive
     cc_info: Optional[Dict] = None
     shell: bool = False                  # anti-bot interstitial: a non-200 empty shell
+    ax_tree: Optional[Dict] = None       # accessibility-tree snapshot (browser mode only)
 
 
 import threading
@@ -124,7 +125,7 @@ def _try_requests(domain: str):
 
 def _render_with_browser(domain: str) -> Dict:
     out = {"nav_html": None, "nav_status": None, "rendered_text": None,
-           "rendered_html": None, "error": None}
+           "rendered_html": None, "ax_tree": None, "error": None}
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:  # noqa: BLE001
@@ -159,6 +160,12 @@ def _render_with_browser(domain: str) -> Dict:
                     out["rendered_html"] = page.content()
                 except Exception as exc:  # noqa: BLE001
                     out["error"] = str(exc)
+                # Accessibility tree — the semantic layer autonomous AI agents
+                # traverse (roles/names/states), not the raw DOM. Best-effort.
+                try:
+                    out["ax_tree"] = page.accessibility.snapshot(interesting_only=False)
+                except Exception:
+                    pass
             browser.close()
     except Exception as exc:  # noqa: BLE001
         out["error"] = str(exc)
@@ -198,6 +205,7 @@ def _compute_page(domain: str) -> PageFetch:
         if rr.get("rendered_text") is not None:
             pf.rendered_text = rr["rendered_text"]
             pf.rendered_html = rr["rendered_html"]
+            pf.ax_tree = rr.get("ax_tree")
             nav_status = rr.get("nav_status")
             nav_ok = nav_status is None or nav_status < 400
             if not pf.raw_html and rr.get("nav_html") and nav_ok:

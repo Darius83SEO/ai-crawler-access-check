@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Visibility Scorecard — {{ domain }}</title>
+<title>AI Access &amp; Agent Scorecard — {{ domain }}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
   :root{
@@ -104,10 +104,10 @@
   <div class="sheet">
     <div class="head">
       <div>
-        <div class="eyebrow">AI Visibility Audit · Training data is the new ranking factor</div>
-        <h1>AI Crawler Access Scorecard</h1>
+        <div class="eyebrow">AI Access &amp; Agent Audit · Reachable for training &amp; retrieval · Navigable for AI agents</div>
+        <h1>AI Access &amp; Agent Scorecard</h1>
         <div class="domain">{{ domain }}</div>
-        <div class="meta">Generated {{ ran_at }} · 5-check audit (Common Crawl framework)</div>
+        <div class="meta">Generated {{ ran_at }} · 6-check audit (Common Crawl framework + agentic layer)</div>
       </div>
       <div class="gauge">
         <svg width="132" height="132" viewBox="0 0 120 120">
@@ -156,9 +156,11 @@
       </div>
       {% endfor %}
 
-      <div class="section-title">Two layers — a complete audit checks both</div>
+      <div class="section-title">The two retrievability layers — a complete audit checks both</div>
       <div class="section-sub">A site can be in a model's baked-in memory yet blocked from live
-        retrieval, or the reverse. These two reads are derived from the checks above.</div>
+        retrieval, or the reverse. These two reads are derived from checks 1–5. Agent-navigability
+        (check 6, "Agentic" chip) is a separate, emerging layer — being cited is not the same as being
+        actionable.</div>
       <div class="layers">
         {% for key in ['parametric','retrieval'] %}{% set L = layers[key] %}
         <div class="layer" style="--c:{{ L.color }}">
@@ -209,16 +211,18 @@
         <div class="gl"><span class="gn">3</span><div><b>Harmonic Centrality</b> — How close the domain sits to the web's core in the CC Web Graph. Central domains get crawled deeper and more often (it sets crawl priority).</div></div>
         <div class="gl"><span class="gn">4</span><div><b>Structured Data</b> — Is key Schema.org markup (Organization, page, author, breadcrumb) in the server HTML, so models can represent and attribute the entity?</div></div>
         <div class="gl"><span class="gn">5</span><div><b>Server-Side Rendering</b> — Does the content exist in the raw HTML without JavaScript? Many AI crawlers don't run JS, so JS-only content is invisible to them.</div></div>
+        <div class="gl"><span class="gn">6</span><div><b>Agentic Readiness</b> — A different question from the first five: can an autonomous AI agent (Operator, computer-use) <i>navigate and act</i> on the page? Reads the accessibility tree (semantic controls, roles, accessible names, heading hierarchy) and the presence + correctness of <code>/llms.txt</code>. Matters most for transactional journeys (buy, book, sign up).</div></div>
       </div>
     </div>
 
     <div class="foot">
-      <b>Method.</b> Five checks, most decisive first: (1) CCBot access — robots.txt + edge/WAF,
+      <b>Method.</b> Six checks. Retrievability (1–5, most decisive first): (1) CCBot access — robots.txt + edge/WAF,
       (2) Common Crawl Index coverage, (3) Harmonic Centrality in the CC Web Graph,
       (4) Schema.org structured data, (5) server-side rendering. The old world was index &amp; rank;
       the new world is train &amp; retrieve — if you're not in the crawl, you're not in the model.
-      Centrality data via the community CC Rank Checker (webgraph.metehan.ai); verify single data points
-      against official sources where a decision hinges on them.
+      Agentic readiness (6): can an autonomous AI agent navigate and act on the page — accessibility tree
+      + llms.txt. Centrality data via the community CC Rank Checker (webgraph.metehan.ai); verify single
+      data points against official sources where a decision hinges on them.
     </div>
   </div>
 </body>

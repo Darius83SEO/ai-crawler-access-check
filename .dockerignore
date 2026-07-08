@@ -1,0 +1,14 @@
+.git
+__pycache__
+**/__pycache__
+*.pyc
+.venv
+venv
+.streamlit/secrets.toml
+sample_scorecard.html
+sample_scorecard.png
+_*.html
+_*.png
+esempio card.png
+scratchpad_streamlit.log
+*.log

@@ -78,6 +78,15 @@ def build_recommendations(report: AuditReport) -> List[Dict[str, str]]:
             "Structured data helps models represent and attribute your entity cleanly — low effort, "
             "high leverage for citation.")
 
+    # 6 · Agentic readiness — emerging action layer (AX tree + llms.txt)
+    ag = by.get("agentic")
+    if ag and ag.status in (FAIL, WARN):
+        add("Medium" if ag.status == FAIL else "Low", "Make the site navigable for AI agents", ag.remediation,
+            "A different layer from retrievability: autonomous agents (Operator, computer-use) traverse the "
+            "accessibility tree, not the raw HTML. Semantic controls, accessible names and a valid llms.txt let "
+            "them complete journeys (buy, book, sign up) instead of reading the page as inert. Highest payoff "
+            "for transactional sites.")
+
     # 5 · Centrality — strategic, slow payoff
     c = by.get("centrality")
     if c and c.status in (FAIL, WARN) and (c.fraction is None or c.fraction < 0.7):
