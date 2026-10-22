@@ -41,15 +41,39 @@ def build_recommendations(report: AuditReport) -> List[Dict[str, str]]:
         recs.append({"priority": priority, "title": title, "action": action,
                      "impact": impact, "color": PRIORITY_COLOR.get(priority, "#317fd2")})
 
-    # 1 · Access — highest leverage
+    # 2 · Live-retrieval bots — decides today's answers, so it leads the plan
+    b = by.get("ai_bots")
+    if b and b.status == FAIL:
+        add("Critical", "Let AI search crawlers read you", b.remediation,
+            "Search crawlers and user fetchers decide whether a page can appear in today's answers. Blocking "
+            "them removes you from that engine's answers immediately — unlike training bots, whose effect "
+            "only shows in future models.")
+    elif b and b.status == WARN:
+        add("High", "Open the gaps in live AI retrieval", b.remediation,
+            "A CDN 'block AI bots' default often catches search and user-fetch bots along with training "
+            "bots. Separate the three: you can keep training out and still be read in live answers.")
+
+    # 3 · Index & snippet eligibility
+    e = by.get("eligibility")
+    if e and e.status == FAIL:
+        add("Critical" if (e.evidence or {}).get("issues", {}).get("noindex") else "High",
+            "Make pages eligible for index-based answers", e.remediation,
+            "Gemini, AI Overviews, AI Mode and Copilot answer from a search index. A page that is noindex, "
+            "snippet-restricted or canonicalised elsewhere can be crawled and still never be used.")
+    elif e and e.status == WARN:
+        add("Medium", "Tidy directives and sitemap freshness", e.remediation,
+            "Index-backed engines replace stale sources fast: accurate lastmod dates and no accidental "
+            "snippet limits keep updated content in the answer pool.")
+
+    # 1 · Training access
     a = by.get("access")
     if a and a.status == FAIL:
-        add("Critical", "Unblock AI crawlers (robots.txt + CDN/WAF)", a.remediation,
-            "The single highest-leverage, lowest-effort move. Well-behaved crawlers resume on their "
-            "normal schedule the moment you allow them, and presence then compounds every month.")
+        add("High", "Unblock training crawlers (robots.txt + CDN/WAF)", a.remediation,
+            "Training presence compounds slowly: well-behaved crawlers resume on their normal schedule "
+            "the moment you allow them, and the payoff arrives with the next model generations.")
     elif a and a.status == WARN:
-        add("Medium", "Review which AI crawlers you block", a.remediation,
-            "An accidental CDN default may be excluding you from some engines — make it a deliberate choice.")
+        add("Low", "Review which training crawlers you block", a.remediation,
+            "Blocking training bots is a legitimate choice — just make it a deliberate one, not a CDN default.")
 
     # 2 · Index coverage
     idx = by.get("index")
@@ -78,14 +102,14 @@ def build_recommendations(report: AuditReport) -> List[Dict[str, str]]:
             "Structured data helps models represent and attribute your entity cleanly — low effort, "
             "high leverage for citation.")
 
-    # 6 · Agentic readiness — emerging action layer (AX tree + llms.txt)
+    # 8 · Agentic readiness — emerging action layer
     ag = by.get("agentic")
     if ag and ag.status in (FAIL, WARN):
         add("Medium" if ag.status == FAIL else "Low", "Make the site navigable for AI agents", ag.remediation,
-            "A different layer from retrievability: autonomous agents (Operator, computer-use) traverse the "
-            "accessibility tree, not the raw HTML. Semantic controls, accessible names and a valid llms.txt let "
-            "them complete journeys (buy, book, sign up) instead of reading the page as inert. Highest payoff "
-            "for transactional sites.")
+            "A different layer from retrievability: autonomous agents (ChatGPT agent, computer-use) traverse "
+            "the accessibility tree, not the raw HTML. Semantic controls, accessible names, labelled forms "
+            "and no hard CAPTCHA on key journeys let them complete tasks (buy, book, sign up) instead of "
+            "stalling. Highest payoff for transactional sites.")
 
     # 5 · Centrality — strategic, slow payoff
     c = by.get("centrality")
@@ -102,7 +126,8 @@ def build_recommendations(report: AuditReport) -> List[Dict[str, str]]:
         "AI retrievers tilt toward English (~41% of the crawl). For a non-English market this is one of "
         "the few content-side moves that widens your AI footprint.")
     add("Low", "Re-audit on a schedule",
-        "Re-run this audit quarterly and after any CDN/WAF or platform migration.",
+        "Re-run this audit quarterly and after any CDN/WAF or platform migration. Cross-check with server "
+        "logs: they show which AI bots actually arrive, which a user-agent test can't prove.",
         "CDN defaults change and block AI bots silently; catching a regression early protects months of "
         "accumulated crawl presence.")
 

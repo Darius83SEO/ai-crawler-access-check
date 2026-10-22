@@ -9,7 +9,7 @@ from typing import Dict
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .models import (AuditReport, STATUS_COLOR, STATUS_ICON, STATUS_LABEL)
-from .layers import CHECK_LAYER, MODEL_TABLE, derive_layers
+from .layers import CHECK_LAYER, GLOSSARY, MODEL_TABLE, derive_layers
 from .recommendations import build_recommendations, _headline
 
 _TEMPLATES = os.path.join(os.path.dirname(__file__), "templates")
@@ -65,6 +65,8 @@ def _context(report: AuditReport) -> Dict:
         "score_color": score_color,
         "layers": layers,
         "model_table": MODEL_TABLE,
+        "glossary": [{"title": GLOSSARY[c.id][0], "text": GLOSSARY[c.id][1]}
+                     for c in report.checks if c.id in GLOSSARY],
         "recommendations": build_recommendations(report),
         "rec_headline": _headline(report),
     }

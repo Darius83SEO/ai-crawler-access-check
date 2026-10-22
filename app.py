@@ -1,6 +1,6 @@
 """AI Access & Agent Audit — Streamlit front-end.
 
-Enter a domain, run the six-check audit, and get a polished scorecard you can
+Enter a domain, run the eight-check audit, and get a polished scorecard you can
 show a client or download as a one-page HTML/PDF. It answers two questions in
 one: are you *retrievable* by the crawlers that train and feed the models, and
 are you *actionable* by the autonomous agents that navigate on a user's behalf?
@@ -90,13 +90,87 @@ st.markdown("""
 <div class="hero">
   <div class="tag">Reachable for training &amp; retrieval · Navigable for AI agents</div>
   <h1>🛰️ AI Access &amp; Agent Audit</h1>
-  <div class="sub">Six checks, ~90 seconds. Two questions in one: can the crawlers that train and
-  feed ChatGPT, Gemini, Claude &amp; Perplexity <b>reach and capture</b> your site — and can the
-  autonomous AI agents that act on a user's behalf <b>navigate and use</b> your pages?</div>
+  <div class="sub">Eight checks, ~90 seconds. Three layers: can the crawlers that <b>train</b>
+  ChatGPT, Gemini, Claude &amp; Perplexity capture your site, can the bots behind their <b>live
+  answers</b> read and quote it today — and can the autonomous AI agents that act on a user's
+  behalf <b>navigate and use</b> your pages?</div>
 </div>
 """, unsafe_allow_html=True)
 
 st.write("")
+
+with st.expander("ℹ️ How the eight checks work (and what's new)"):
+    st.markdown("""
+**Three layers, three different questions.** An AI assistant can know you from its *training data*,
+read you *live* when it searches the web to answer, and — with agents — *act* on your site.
+Each layer has its own bots and its own failure modes, so the audit reads them separately.
+
+#### 🧠 Training (parametric memory)
+
+**1 · Training-crawler access** — can the bots that build training data (CCBot, GPTBot, ClaudeBot,
+Google-Extended…) reach the site? Reads robots.txt and compares how the server answers the CCBot
+user agent vs a normal browser, to catch firewall blocks a clean robots.txt would hide.
+Blocking these is a legitimate choice: it only affects *future* models, not today's answers.
+
+**4 · Common Crawl Index coverage** — are your pages actually in the archive most models train on?
+If the index doesn't answer (it's often overloaded), the check shows "not determined" and is
+left out of the score instead of counting as a fail.
+
+**5 · Harmonic Centrality** — how close your domain sits to the core of the web graph: central
+domains are crawled deeper and more often.
+
+#### 🔎 Live retrieval — NEW
+
+**2 · AI search & user-fetch bots** — when ChatGPT, Gemini, Claude, Perplexity or Copilot search the
+web, they don't use Common Crawl: they use their own search crawler or a search engine's index,
+plus a fetcher that reads a page when a user asks for it. The check tests each one:
+
+- *search crawlers*: Googlebot (Gemini, AI Overviews, AI Mode), Bingbot (Copilot),
+  OAI-SearchBot (ChatGPT search), Claude-SearchBot, PerplexityBot;
+- *user-triggered fetchers*: ChatGPT-User, Claude-User, Perplexity-User;
+- *Google-Extended*: a robots.txt token (not a crawler) that also controls whether the Gemini
+  apps can ground answers on your pages — it doesn't affect AI Overviews.
+
+Blocking a search crawler removes you from that engine's answers **today**. CDN "block AI bots"
+switches often catch these together with training bots: the check separates them.
+*Limit:* the test sends each bot's user agent from our server, not from the bot's official IPs.
+A refusal is a strong hint, not proof — confirm in your server logs. Googlebot and Bingbot are
+usually verified by IP at the CDN, so a refusal of a spoofed request is expected and not
+counted as a block.
+
+**3 · Index & snippet eligibility** — being read isn't enough: index-based answers only use pages
+the index may keep and quote. On the homepage it reads:
+
+- `noindex` → the page leaves the index (no Gemini, AI Overviews or Copilot);
+- `nosnippet` / `max-snippet` → Google won't quote the text in AI Overviews and AI Mode;
+- `noarchive` / `nocache` → Bing keeps the content out of Copilot answers / limits it to
+  URL, title and snippet;
+- the **canonical** (pointing to another site hands eligibility to that site);
+- the **XML sitemap** and how fresh its `lastmod` dates are — index-backed engines replace
+  stale sources quickly, and fresh dates are how updated pages get re-read.
+
+#### 🧩 Both layers
+
+**6 · Structured data** — Schema.org markup (Organization, page, author, breadcrumb) that helps
+models represent and attribute your entity.
+
+**7 · Server-side rendering** — is the content in the HTML without JavaScript? Many AI crawlers
+don't run JS, so JS-only content is invisible to them.
+
+#### 🤖 Agentic — UPDATED
+
+**8 · Agentic readiness** — can an autonomous agent (ChatGPT agent, computer-use) navigate and act
+on the page? Agents read the *accessibility tree*, not the raw HTML. The check looks at
+landmarks, real buttons/links vs clickable `<div>`s, accessible names, heading order, and —
+new — **forms** (labelled fields, `autocomplete` hints), **CAPTCHAs** (agents are built not to
+solve them, so the score drops) and **consent banners** (reported, so you can check they close
+with real buttons). `llms.txt` now weighs only 15% of this check: there's no public evidence
+yet that the major assistants read it.
+
+**Score.** Each check gives pass / warning / fail and a fix. The weighted total becomes a 0–100
+score and an A–F grade, computed only on the checks that could be evaluated. All checks read the
+**homepage**: run inner pages through a crawler for a full picture.
+""")
 
 col1, col2 = st.columns([4, 1])
 with col1:
@@ -105,12 +179,14 @@ with col2:
     run = st.button("Run audit", use_container_width=True)
 
 CHECK_NAMES = {
-    "robots_waf": "CCBot access (robots.txt + WAF)",
+    "robots_waf": "Training-crawler access (CCBot)",
+    "ai_bots": "AI search & user-fetch bots",
+    "eligibility": "Index & snippet eligibility",
     "cc_index": "Common Crawl Index coverage",
     "centrality": "Harmonic Centrality",
     "structured_data": "Structured data",
     "rendering": "Server-side rendering",
-    "agentic": "Agentic readiness (AX tree + llms.txt)",
+    "agentic": "Agentic readiness (AX tree, forms, blockers, llms.txt)",
 }
 
 if run and domain.strip():
@@ -134,11 +210,12 @@ if run and domain.strip():
 
     prog.empty()
     html = render_html(report)
-    # Height scales with the number of checks, the two-layer panel, the
-    # model-family table and the strategic plan, so nothing is clipped.
+    # Height scales with each check's detail lines, the two-layer panel, the
+    # model-family table, the strategic plan and the glossary, so nothing is clipped.
     from aiaudit.recommendations import build_recommendations
     n_recs = len(build_recommendations(report))
-    height = 470 + len(report.checks) * 250 + 520 + 140 + n_recs * 96 + 230
+    checks_h = sum(190 + 21 * len(c.details) for c in report.checks)
+    height = 470 + checks_h + 520 + 220 + n_recs * 110 + 120 + len(report.checks) * 48
     components.html(html, height=height, scrolling=True)
 
     st.download_button(
@@ -170,6 +247,8 @@ with st.sidebar:
         else:
             st.warning("Enter an IP.")
     st.divider()
-    st.caption("Checks 1–5 (retrievability) follow Common Crawl's *AI Visibility Audit* field guide; "
-               "centrality via the community CC Rank Checker. Check 6 (agentic readiness) adds the "
-               "accessibility-tree + llms.txt read for autonomous AI agents.")
+    st.caption("Training checks follow Common Crawl's *AI Visibility Audit* field guide; centrality via "
+               "the community CC Rank Checker. Live-retrieval checks test the search and user-fetch bots "
+               "of ChatGPT, Gemini, Claude, Perplexity and Copilot plus index/snippet directives. The "
+               "agentic check reads the accessibility tree, forms and blockers for autonomous AI agents. "
+               "Bot tests use each bot's user agent, not its IPs: confirm in server logs.")

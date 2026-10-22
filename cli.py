@@ -30,7 +30,7 @@ def main() -> int:
             pass
 
     ap = argparse.ArgumentParser(
-        description="AI Access & Agent Audit — 6-check retrievability + agentic audit")
+        description="AI Access & Agent Audit — 8-check training, live-retrieval + agentic audit")
     ap.add_argument("domain", help="domain or URL, e.g. example.com")
     ap.add_argument("--html", metavar="FILE", help="write the HTML scorecard to FILE")
     ap.add_argument("--json", action="store_true", help="print the full report as JSON")

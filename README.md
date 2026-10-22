@@ -10,36 +10,58 @@ pinned: false
 
 # 🛰️ AI Access & Agent Audit
 
-Answers **two questions in one**, for any domain:
+Answers **three questions**, for any domain:
 
-1. **Retrievability** — is your site reachable by the crawlers that *train* and
-   *feed* ChatGPT, Gemini, Claude & Perplexity, and are you actually in the crawl?
-   (Checks 1–5, a standalone implementation of Common Crawl's field guide
-   *"The AI Visibility Audit — training data is the new ranking factor."*)
-2. **Agentic readiness** — can the autonomous AI agents that *act on a user's
-   behalf* (Operator, ChatGPT agent, computer-use) actually **navigate and use**
-   your pages? (Check 6.)
+1. **Training (parametric)** — can the crawlers that *train* ChatGPT, Gemini,
+   Claude & Perplexity reach you, and are you actually in the crawl? (A
+   standalone implementation of Common Crawl's field guide *"The AI Visibility
+   Audit — training data is the new ranking factor."*)
+2. **Live retrieval** — can the bots behind today's *answers* read and quote
+   you? When an assistant searches the web it does **not** use Common Crawl: it
+   uses its own search crawler or a search engine's index, plus a fetcher that
+   reads a page when a user asks for it.
+3. **Agentic readiness** — can the autonomous AI agents that *act on a user's
+   behalf* (ChatGPT agent, computer-use) actually **navigate and use** your pages?
 
 > The old world was *index & rank*. The new world is *train, retrieve & act*.
 > Being crawlable gets you into the answer; being agent-navigable gets you into
 > the task.
 
-## The six checks
+## The eight checks
 
-| # | Check | What it answers | Data source |
-|---|-------|-----------------|-------------|
-| 1 | **CCBot access** (weight 30) | Can AI crawlers physically reach the site? | `robots.txt` + edge/WAF UA test |
-| 2 | **CC Index coverage** (25) | Is the domain actually in the archive, how recently? | `index.commoncrawl.org` (free) |
-| 3 | **Harmonic Centrality** (15) | Is the domain prioritised or deprioritised for crawling? | CC Web Graph via `webgraph.metehan.ai` |
-| 4 | **Structured data** (15) | Is the content easy to represent in training? | Schema.org JSON-LD / microdata |
-| 5 | **Server-side rendering** (15) | Does content exist without JavaScript? | raw HTML vs Playwright render |
-| 6 | **Agentic readiness** (10) | Can an autonomous AI agent navigate & act on the page? | accessibility tree (DOM / Playwright AX snapshot) + `/llms.txt` |
+| # | Check | Layer | What it answers | Data source |
+|---|-------|-------|-----------------|-------------|
+| 1 | **Training-crawler access** (weight 20) | Parametric | Can CCBot, GPTBot, ClaudeBot, Google-Extended… reach the site? | `robots.txt` + edge/WAF UA test |
+| 2 | **AI search & user-fetch bots** (25) | Retrieval | Can Googlebot, Bingbot, OAI-SearchBot, Claude-SearchBot, PerplexityBot and ChatGPT-User, Claude-User, Perplexity-User read you? | `robots.txt` + per-bot edge UA test |
+| 3 | **Index & snippet eligibility** (15) | Retrieval | May index-based answers keep and quote the page? | robots meta / X-Robots-Tag (noindex, nosnippet, max-snippet, noarchive, nocache), canonical, sitemap `lastmod` freshness |
+| 4 | **CC Index coverage** (20) | Parametric | Is the domain actually in the archive, how recently? | `index.commoncrawl.org` (free) |
+| 5 | **Harmonic Centrality** (10) | Parametric | Is the domain prioritised or deprioritised for crawling? | CC Web Graph via `webgraph.metehan.ai` |
+| 6 | **Structured data** (10) | Both | Is the content easy to represent and attribute? | Schema.org JSON-LD / microdata |
+| 7 | **Server-side rendering** (15) | Both | Does content exist without JavaScript? | raw HTML vs Playwright render |
+| 8 | **Agentic readiness** (10) | Agentic | Can an autonomous AI agent navigate & act on the page? | accessibility tree, forms, CAPTCHA/consent blockers + `/llms.txt` |
 
 Each check returns pass / warning / fail with a remediation. The weighted total
 becomes a **0–100 score and an A–F grade** (the score auto-normalises over the
-checks that could be evaluated).
+checks that could be evaluated — a check whose upstream source times out, e.g.
+the Common Crawl index, is shown as "not determined" and left out).
 
-### About check 6 — a *different* layer, not more of the same
+### About checks 2–3 — live retrieval
+- **Search crawlers vs user fetchers vs training.** Blocking a *training* bot
+  only affects future models; blocking a *search* crawler removes you from that
+  engine's answers today. CDN "block AI bots" rules often catch all three — the
+  check separates them.
+- **Googlebot and Bingbot** feed Gemini / AI Overviews / AI Mode and Copilot.
+  Most CDNs verify those two by IP, so a spoofed-UA refusal is expected and not
+  counted as a block.
+- **Google-Extended** is a robots.txt token, not a crawler: it governs Gemini
+  training *and* grounding in the Gemini apps, but not AI Overviews.
+- **Directives:** Google applies `nosnippet` / `max-snippet` to AI Overviews and
+  AI Mode; Bing's `noarchive` keeps content out of Copilot answers and `nocache`
+  limits it to URL, title and snippet.
+- **Limit:** bot tests send the bot's user agent from a non-official IP. A
+  refusal is a strong hint, not proof — confirm in server logs.
+
+### About check 8 — a *different* layer, not more of the same
 Training and retrieval crawlers read HTML/text. **Autonomous agents** instead
 traverse the **accessibility tree** — the semantic subset of the DOM exposing
 each control's *role*, *name* and *state* — because it's the cheap way to know
@@ -47,26 +69,31 @@ what's actionable (a screenshot is ~50k tokens, the raw DOM ~8k and noisy, a
 filtered AX tree ~15k). Google now surfaces a broken accessibility tree as an
 "Agentic Browsing" signal in Lighthouse. A site can be perfectly cited by
 ChatGPT yet unusable by an agent if its controls are `<div onclick>` with no
-role or name. Check 6 combines:
+role or name. Check 8 combines:
 
-- **Accessibility-tree readiness (70%)** — semantic landmarks, real vs "fake"
-  controls, accessible names on interactive elements, heading hierarchy.
+- **Accessibility-tree readiness (85%)** — semantic landmarks, real vs "fake"
+  controls, accessible names on interactive elements, heading hierarchy, and
+  usable forms (programmatic labels + `autocomplete` tokens). A CAPTCHA widget
+  on the page lowers the score (agents are built not to solve them); a consent
+  banner is reported so you can check it's dismissable with real buttons.
   Approximated from the DOM in Lite mode; enriched by the real AX snapshot in
   browser mode.
-- **`llms.txt` (30%)** — presence and correctness of the `/llms.txt` guide file
-  ([llmstxt.org](https://llmstxt.org)) you publish *for* AI clients.
+- **`llms.txt` (15%)** — presence and correctness of the `/llms.txt` guide file
+  ([llmstxt.org](https://llmstxt.org)). Kept light on purpose: there is no public
+  evidence yet that the major assistants read it.
 
-> A weak check-6 score does **not** mean you're invisible to AI answers — it's
+> A weak check-8 score does **not** mean you're invisible to AI answers — it's
 > about *actionability*, which matters most for transactional journeys (buy,
 > book, sign up).
 
 ## Three layers
 
-The scorecard derives the guide's **two-layer retrievability read** — *parametric
-memory* ("were you reachable when the model trained?") vs *live retrieval / RAG*
-("are you reachable for live fetch today?") — from checks 1–5, and shows the
-model-family reference table. Check 6 surfaces the emerging **agentic** layer
-("can an agent act on you today?"). A complete audit reads **all three**.
+The scorecard derives a **two-layer retrievability read** — *parametric memory*
+("were you reachable when the model trained?", from checks 1, 4, 5) vs *live
+retrieval* ("can today's answers read and quote you?", from checks 2, 3, 7) — and
+shows the model-family reference table. Check 8 surfaces the emerging
+**agentic** layer ("can an agent act on you today?"). A complete audit reads
+**all three**.
 
 ## Bonus — "Is it really CCBot?"
 

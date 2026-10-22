@@ -16,7 +16,7 @@ import requests
 from ..http import BROWSER_UA
 from ..models import CheckResult, FAIL, PASS, WARN, ERROR
 
-WEIGHT = 25.0
+WEIGHT = 20.0
 
 COLLINFO = "https://index.commoncrawl.org/collinfo.json"
 # How many of the most recent monthly crawls to probe for presence.
@@ -82,10 +82,15 @@ def run(domain: str) -> CheckResult:
     latest_ts = None
     capped_any = False
 
+    failed = 0
     for c in crawls:
         try:
-            pages, latest, capped = _query_crawl(c["cdx-api"], domain)
+            try:
+                pages, latest, capped = _query_crawl(c["cdx-api"], domain)
+            except Exception:  # noqa: BLE001 — the index often 504s under load; retry once
+                pages, latest, capped = _query_crawl(c["cdx-api"], domain)
         except Exception as exc:  # noqa: BLE001
+            failed += 1
             details.append(f"• {c['id']}: query failed ({exc})")
             continue
         capped_any = capped_any or capped
@@ -106,6 +111,17 @@ def run(domain: str) -> CheckResult:
         "pages_capped": capped_any,
         "latest_timestamp": latest_ts,
     })
+
+    # A timed-out query is not evidence of absence: if any crawl couldn't be read
+    # and none showed the domain, report "not determined" and keep it out of the score.
+    if first_seen_crawl is None and failed:
+        return CheckResult(
+            id="index", title="CC Index Coverage", status=ERROR, weight=WEIGHT,
+            summary=(f"The Common Crawl Index didn't answer for {failed} of {len(crawls)} crawls "
+                     "(timeouts) — coverage can't be confirmed right now, so it's excluded from the score."),
+            details=details, evidence=evidence,
+            remediation="Retry in a few minutes — index.commoncrawl.org is often overloaded.",
+        )
 
     if first_seen_crawl is None:
         return CheckResult(

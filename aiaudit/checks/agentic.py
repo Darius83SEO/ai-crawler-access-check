@@ -15,12 +15,16 @@ see them as actionable — the page reads as inert.
 
 Two sub-signals, combined:
 
-  • Accessibility-tree readiness (70%) — semantic landmarks, real vs "fake"
-    controls, accessible names on interactive elements, heading hierarchy.
-    Computed from the DOM in Lite mode; enriched by the real AX snapshot
-    (Playwright ``page.accessibility.snapshot``) when the browser path is on.
-  • llms.txt (30%) — presence and correctness of the ``/llms.txt`` guide file
-    (llmstxt.org), the machine-readable map you publish *for* AI clients.
+  • Accessibility-tree readiness (85%) — semantic landmarks, real vs "fake"
+    controls, accessible names on interactive elements, heading hierarchy and
+    usable forms (labels + autocomplete). Computed from the DOM in Lite mode;
+    enriched by the real AX snapshot (Playwright ``page.accessibility.snapshot``)
+    when the browser path is on. Two blockers are flagged on top: a CAPTCHA
+    widget on the page (agents are designed not to solve them) and a consent
+    banner (informational — the agent must dismiss it first).
+  • llms.txt (15%) — presence and correctness of the ``/llms.txt`` guide file
+    (llmstxt.org). Kept deliberately light: there is no public evidence yet that
+    the major assistants read it.
 
 Unlike the retrievability checks, a poor score here does NOT mean you're
 invisible to ChatGPT/Perplexity — a plain content site can be perfectly
@@ -30,6 +34,7 @@ cited yet not agent-actionable. It matters most where agents complete tasks
 
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional, Tuple
 
 import requests
@@ -42,8 +47,34 @@ from ..models import CheckResult, FAIL, PASS, WARN, ERROR
 WEIGHT = 10.0
 
 # How the two sub-signals split this check's fraction.
-_AX_SHARE = 0.70
-_LLMS_SHARE = 0.30
+_AX_SHARE = 0.85
+_LLMS_SHARE = 0.15
+
+# Sub-signal weights inside AX readiness. "forms" only counts when the page has
+# fillable fields; otherwise the others are renormalised.
+_AX_WEIGHTS = {"landmarks": 0.20, "controls": 0.25, "names": 0.20, "headings": 0.15, "forms": 0.20}
+_CAPTCHA_PENALTY = 0.15
+
+_CAPTCHA_MARKERS = {
+    "reCAPTCHA": ("google.com/recaptcha", "grecaptcha", "g-recaptcha"),
+    "hCaptcha": ("hcaptcha.com", "h-captcha"),
+    "Cloudflare Turnstile": ("challenges.cloudflare.com/turnstile", "cf-turnstile"),
+    "FriendlyCaptcha": ("friendlycaptcha", "frc-captcha"),
+}
+_CMP_MARKERS = {
+    "Cookiebot": ("consent.cookiebot.com", "cookiebot"),
+    "OneTrust": ("cdn.cookielaw.org", "onetrust"),
+    "iubenda": ("cdn.iubenda.com", "iubenda"),
+    "Didomi": ("sdk.privacy-center.org", "didomi"),
+    "Usercentrics": ("usercentrics",),
+    "Complianz": ("complianz", "cmplz"),
+    "CookieYes": ("cookieyes", "cky-consent"),
+    "Quantcast Choice": ("quantcast.mgr.consensu.org", "qc-cmp2"),
+    "Axeptio": ("axeptio",),
+}
+# Field names/types for which an autocomplete hint lets an agent fill reliably.
+_AUTOFILL_HINT = re.compile(
+    r"e-?mail|name|nome|cognome|phone|tel|address|indirizzo|city|citt|zip|cap|postal|country", re.I)
 
 _INTERACTIVE_TAGS = {"a", "button", "input", "select", "textarea", "summary"}
 _INTERACTIVE_ROLES = {"button", "link", "menuitem", "tab", "checkbox", "radio",
@@ -102,6 +133,48 @@ def _heading_score(soup) -> Tuple[float, List[str]]:
     return max(0.0, score), notes
 
 
+def _form_score(soup) -> Tuple[Optional[float], Optional[str], Dict]:
+    """Labels + autocomplete on fillable fields. None when there are no fields."""
+    fields = [el for el in soup.find_all(["input", "select", "textarea"])
+              if el.get("type", "text").lower() not in
+              ("hidden", "submit", "button", "reset", "image", "checkbox", "radio", "file")]
+    if not fields:
+        return None, None, {"form_fields": 0}
+    label_for = {lab.get("for") for lab in soup.find_all("label") if lab.get("for")}
+    labelled = hint_fields = autocompleted = 0
+    for el in fields:
+        if (el.get("id") and el["id"] in label_for) or el.find_parent("label") is not None \
+                or el.get("aria-label", "").strip() or el.get("aria-labelledby", "").strip() \
+                or el.get("title", "").strip():
+            labelled += 1
+        key = " ".join([el.get("name", ""), el.get("id", ""), el.get("type", "")])
+        if _AUTOFILL_HINT.search(key) or el.get("type", "").lower() in ("email", "tel"):
+            hint_fields += 1
+            ac = el.get("autocomplete", "").strip().lower()
+            if ac and ac not in ("off", "on"):
+                autocompleted += 1
+    label_frac = labelled / len(fields)
+    ac_frac = autocompleted / hint_fields if hint_fields else 1.0
+    frac = 0.7 * label_frac + 0.3 * ac_frac
+    note = (f"Forms: {labelled}/{len(fields)} fields have a programmatic label"
+            + (f", {autocompleted}/{hint_fields} personal-data fields declare autocomplete"
+               if hint_fields else ""))
+    return frac, note, {"form_fields": len(fields), "labelled": labelled,
+                        "autofill_fields": hint_fields, "autocompleted": autocompleted}
+
+
+def _detect(html: str, markers: Dict[str, tuple]) -> List[str]:
+    low = (html or "").lower()
+    return [name for name, keys in markers.items() if any(k in low for k in keys)]
+
+
+def _ax_combine(fracs: Dict[str, Optional[float]]) -> float:
+    """Weighted mean of the available AX sub-signals."""
+    avail = {k: v for k, v in fracs.items() if v is not None}
+    total = sum(_AX_WEIGHTS[k] for k in avail)
+    return sum(_AX_WEIGHTS[k] * v for k, v in avail.items()) / total if total else 0.0
+
+
 def _dom_ax_readiness(html: str) -> Tuple[float, List[str], Dict]:
     """DOM-based approximation of accessibility-tree quality (works without a browser)."""
     soup = BeautifulSoup(html, "html.parser")
@@ -138,7 +211,18 @@ def _dom_ax_readiness(html: str) -> Tuple[float, List[str], Dict]:
     # 4 · Heading hierarchy
     head_frac, head_notes = _heading_score(soup)
 
-    ax = (0.25 * landmark_frac + 0.30 * fake_frac + 0.25 * name_frac + 0.20 * head_frac)
+    # 5 · Forms (only when the page has fillable fields)
+    form_frac, form_note, form_ev = _form_score(soup)
+
+    ax = _ax_combine({"landmarks": landmark_frac, "controls": fake_frac, "names": name_frac,
+                      "headings": head_frac, "forms": form_frac})
+
+    # Blockers: CAPTCHA widgets stop agents outright; consent banners must be
+    # dismissed first (too common to penalise — reported only).
+    captchas = _detect(html, _CAPTCHA_MARKERS)
+    cmps = _detect(html, _CMP_MARKERS)
+    if captchas:
+        ax = max(0.0, ax - _CAPTCHA_PENALTY)
 
     notes = [
         f"Landmarks present: {', '.join(sorted(have_landmarks)) or 'none'}"
@@ -149,6 +233,14 @@ def _dom_ax_readiness(html: str) -> Tuple[float, List[str], Dict]:
         (f"{named}/{len(checkable)} interactive elements have an accessible name"
          if checkable else "No interactive elements to name"),
     ] + head_notes[:1]
+    if form_note:
+        notes.append(form_note)
+    if captchas:
+        notes.append(f"CAPTCHA on the page ({', '.join(captchas)}) — agents are built not to solve "
+                     "them, so the journey stops there")
+    if cmps:
+        notes.append(f"Consent banner detected ({', '.join(cmps)}) — make sure accept/reject are real "
+                     "buttons with clear names, so an agent can dismiss it")
 
     evidence = {
         "landmarks": sorted(have_landmarks), "has_main": has_main,
@@ -156,6 +248,8 @@ def _dom_ax_readiness(html: str) -> Tuple[float, List[str], Dict]:
         "named": named, "checkable": len(checkable),
         "frac_landmarks": round(landmark_frac, 2), "frac_controls": round(fake_frac, 2),
         "frac_names": round(name_frac, 2), "frac_headings": round(head_frac, 2),
+        "frac_forms": None if form_frac is None else round(form_frac, 2),
+        "captcha": captchas, "consent_banner": cmps, **form_ev,
         "source": "dom",
     }
     return ax, notes, evidence
@@ -197,7 +291,9 @@ def _fetch_llms_txt(domain: str) -> Tuple[Optional[int], Optional[str], Optional
             r = requests.get(f"{scheme}://{domain}/llms.txt",
                              headers={"User-Agent": BROWSER_UA, "Accept": "text/plain,text/markdown,*/*"},
                              timeout=15, allow_redirects=True)
-            return r.status_code, r.headers.get("Content-Type", ""), r.text
+            # Decode as UTF-8 ourselves: text/plain without a charset makes requests
+            # fall back to Latin-1, which turns a BOM into junk before the "# " title.
+            return r.status_code, r.headers.get("Content-Type", ""), r.content.decode("utf-8-sig", errors="replace")
         except Exception:
             continue
     return None, None, None
@@ -215,6 +311,7 @@ def _validate_llms_txt(domain: str) -> Tuple[Optional[float], List[str], Dict]:
         return 0.0, [f"No /llms.txt (HTTP {status}) — you don't yet publish a machine-readable "
                      "map for AI clients."], ev
 
+    body = body.lstrip("\ufeff")  # a UTF-8 BOM would hide the leading "# " title
     stripped = body.lstrip()
     # SPA/soft-404 catch-all serving the app shell instead of a real file.
     looks_html = stripped[:1].startswith("<") or "<html" in body[:2000].lower() \
@@ -319,9 +416,12 @@ def run(domain: str) -> CheckResult:
         snap_name_frac, snap_note, snap_ev = _ax_snapshot_enrich(pf.ax_tree)
         if snap_name_frac is not None:
             # Blend the authoritative name signal into the readiness score.
-            ax_frac = round(ax_frac * 0.7 + (
-                0.25 * ax_ev["frac_landmarks"] + 0.30 * ax_ev["frac_controls"]
-                + 0.25 * snap_name_frac + 0.20 * ax_ev["frac_headings"]) * 0.3, 3)
+            snap = _ax_combine({"landmarks": ax_ev["frac_landmarks"], "controls": ax_ev["frac_controls"],
+                                "names": snap_name_frac, "headings": ax_ev["frac_headings"],
+                                "forms": ax_ev["frac_forms"]})
+            if ax_ev["captcha"]:
+                snap = max(0.0, snap - _CAPTCHA_PENALTY)
+            ax_frac = round(ax_frac * 0.7 + snap * 0.3, 3)
             ax_notes.append(snap_note)
             ax_ev.update(snap_ev)
 
@@ -352,8 +452,15 @@ def run(domain: str) -> CheckResult:
         remediation_bits.append("wrap primary content in semantic landmarks (<main>, <nav>)")
     if ax_ev.get("checkable") and ax_ev.get("named", 0) < ax_ev["checkable"]:
         remediation_bits.append("give every interactive element an accessible name (text or aria-label)")
+    if ax_ev.get("form_fields") and ax_ev.get("labelled", 0) < ax_ev["form_fields"]:
+        remediation_bits.append("label every form field (<label for>, or aria-label) and add autocomplete "
+                                "tokens (email, given-name, tel…) so an agent can fill forms reliably")
+    if ax_ev.get("captcha"):
+        remediation_bits.append("avoid hard CAPTCHAs on key journeys; prefer invisible/risk-based checks, or "
+                                "verify agents with signed requests (Web Bot Auth) where your CDN supports it")
     if llms_frac is not None and llms_frac < 0.9:
-        remediation_bits.append("publish a well-formed /llms.txt (llmstxt.org): H1 title + [name](url) links, served as text/plain")
+        remediation_bits.append("optionally publish a well-formed /llms.txt (llmstxt.org) — low cost, but "
+                                "no proof yet that the major assistants read it")
     remediation = ("For agent-driven journeys (buy, book, sign up): " + "; ".join(remediation_bits) + "."
                    ) if remediation_bits else ""
 

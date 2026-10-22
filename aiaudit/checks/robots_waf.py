@@ -1,4 +1,4 @@
-"""Check 1 — CCBot access check.
+"""Check 1 — Training-crawler access (CCBot).
 
 Two layers, exactly as the guide describes:
   a) robots.txt — is any AI crawler disallowed at the root?
@@ -8,20 +8,23 @@ Two layers, exactly as the guide describes:
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+import threading
+import time
+from typing import Dict, List, Optional, Tuple
 
 from ..http import BLOCK_CODES, BROWSER_UA, CCBOT_UA, GPTBOT_UA, get
 from ..models import CheckResult, FAIL, PASS, WARN, ERROR
 from ..util import site_url
 
-WEIGHT = 30.0
+WEIGHT = 20.0
 
-# AI / training crawlers the audit cares about (the four named in the guide
-# plus the other common ones a CDN rule typically toggles).
+# Training crawlers / training opt-out tokens (the four named in the guide plus
+# the other common ones a CDN rule typically toggles). Search and user-fetch
+# bots live in the separate ai_bots check — they feed live retrieval, not training.
 AI_BOTS = [
     "CCBot", "GPTBot", "ClaudeBot", "Google-Extended",
-    "anthropic-ai", "PerplexityBot", "Applebot-Extended",
-    "Bytespider", "Amazonbot", "Meta-ExternalAgent", "OAI-SearchBot",
+    "anthropic-ai", "Applebot-Extended",
+    "Bytespider", "Amazonbot", "Meta-ExternalAgent",
 ]
 # CCBot is the one that actually feeds training data, so it is decisive.
 DECISIVE_BOTS = {"ccbot", "gptbot", "claudebot", "google-extended"}
@@ -96,6 +99,39 @@ def analyze_robots(text: str) -> Dict[str, bool]:
     return result
 
 
+# ── robots.txt fetch (shared with the ai_bots and eligibility checks) ──
+_ROBOTS: Dict[str, Tuple[float, Optional[int], str]] = {}
+_ROBOTS_TTL = 1800
+_ROBOTS_LOCK = threading.Lock()
+
+
+def fetch_robots(domain: str) -> Tuple[Optional[int], str]:
+    """Return (status, text) for /robots.txt — text is "" when absent/unusable.
+
+    Cached per domain so the three checks that read robots.txt fetch it once.
+    Raises only if both schemes fail to connect.
+    """
+    with _ROBOTS_LOCK:
+        hit = _ROBOTS.get(domain)
+        if hit and hit[0] > time.time():
+            return hit[1], hit[2]
+        status, text, last_exc = None, "", None
+        for scheme in ("https", "http"):
+            try:
+                r = get(f"{scheme}://{domain}/robots.txt", user_agent=BROWSER_UA, timeout=15)
+                status = r.status_code
+                if r.status_code < 400 and r.text.strip():
+                    text = r.text
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                continue
+        if status is None and last_exc is not None:
+            raise last_exc
+        _ROBOTS[domain] = (time.time() + _ROBOTS_TTL, status, text)
+        return status, text
+
+
 # ── WAF / edge test ────────────────────────────────────────────
 def _status(domain: str, ua: str) -> Tuple[int, str]:
     for scheme in ("https", "http"):
@@ -116,19 +152,11 @@ def run(domain: str) -> CheckResult:
     robots_status = None
     robots_text = ""
     try:
-        for scheme in ("https", "http"):
-            try:
-                r = get(f"{scheme}://{domain}/robots.txt", user_agent=BROWSER_UA, timeout=15)
-                robots_status = r.status_code
-                if r.status_code < 400 and r.text.strip():
-                    robots_text = r.text
-                break
-            except Exception:
-                continue
+        robots_status, robots_text = fetch_robots(domain)
         robots_map = analyze_robots(robots_text) if robots_text else {b: False for b in AI_BOTS}
     except Exception as exc:  # noqa: BLE001
         return CheckResult(
-            id="access", title="CCBot Access Check", status=ERROR, weight=WEIGHT,
+            id="access", title="Training-Crawler Access (CCBot)", status=ERROR, weight=WEIGHT,
             summary=f"Could not fetch robots.txt ({exc}).",
             remediation="Make sure the domain resolves and serves over HTTP(S).",
         )
@@ -143,7 +171,7 @@ def run(domain: str) -> CheckResult:
     elif blocked_bots:
         details.append(f"• robots.txt disallows at '/': {', '.join(blocked_bots)}")
     else:
-        details.append("• robots.txt present, no AI-crawler disallow at '/'.")
+        details.append("• robots.txt present, no training-crawler disallow at '/'.")
 
     # b) edge / WAF UA test
     ccbot_code, ccbot_final = _status(domain, CCBOT_UA)
@@ -162,7 +190,7 @@ def run(domain: str) -> CheckResult:
     # ── verdict ────────────────────────────────────────────────
     if ccbot_code == -1 and browser_code == -1:
         return CheckResult(
-            id="access", title="CCBot Access Check", status=ERROR, weight=WEIGHT,
+            id="access", title="Training-Crawler Access (CCBot)", status=ERROR, weight=WEIGHT,
             summary="The site did not respond on HTTP or HTTPS.",
             details=details, evidence=evidence,
             remediation="Confirm the domain is live and reachable.",
@@ -177,8 +205,8 @@ def run(domain: str) -> CheckResult:
         if ua_discrimination:
             reason.append(f"the edge/WAF returns {ccbot_code} to CCBot while a browser gets {browser_code}")
         return CheckResult(
-            id="access", title="CCBot Access Check", status=FAIL, weight=WEIGHT,
-            fraction=0.0, summary="AI crawlers are blocked — " + "; ".join(reason) + ".",
+            id="access", title="Training-Crawler Access (CCBot)", status=FAIL, weight=WEIGHT,
+            fraction=0.0, summary="Training crawlers are blocked — " + "; ".join(reason) + ".",
             details=details, evidence=evidence,
             remediation=(
                 "Allow the AI user agents. In robots.txt remove the disallow rules for "
@@ -192,7 +220,7 @@ def run(domain: str) -> CheckResult:
     # blocks automated requests. We can't confirm access — never call this open.
     if ccbot_code in BLOCK_CODES:
         return CheckResult(
-            id="access", title="CCBot Access Check", status=WARN, weight=WEIGHT,
+            id="access", title="Training-Crawler Access (CCBot)", status=WARN, weight=WEIGHT,
             fraction=0.4,
             summary=(f"The edge returns HTTP {ccbot_code} to the CCBot user agent — bot-protection "
                      "refuses automated requests, so CCBot access can't be confirmed."),
@@ -207,7 +235,7 @@ def run(domain: str) -> CheckResult:
 
     if not ccbot_ok:
         return CheckResult(
-            id="access", title="CCBot Access Check", status=WARN, weight=WEIGHT,
+            id="access", title="Training-Crawler Access (CCBot)", status=WARN, weight=WEIGHT,
             fraction=0.5,
             summary=f"CCBot received an unexpected HTTP {ccbot_code} — access not clearly confirmed.",
             details=details, evidence=evidence,
@@ -216,15 +244,15 @@ def run(domain: str) -> CheckResult:
 
     if blocked_bots:  # CCBot OK, but some non-decisive AI bots blocked
         return CheckResult(
-            id="access", title="CCBot Access Check", status=WARN, weight=WEIGHT,
-            fraction=0.6, summary=f"CCBot is allowed, but some AI crawlers are blocked: {', '.join(blocked_bots)}.",
+            id="access", title="Training-Crawler Access (CCBot)", status=WARN, weight=WEIGHT,
+            fraction=0.6, summary=f"CCBot is allowed, but some training crawlers are blocked: {', '.join(blocked_bots)}.",
             details=details, evidence=evidence,
-            remediation="Decide deliberately whether those bots should be blocked; if not, remove their disallow rules.",
+            remediation="Decide deliberately whether those training bots should be blocked (it is a legitimate choice — it only affects future model training, not live answers); if not, remove their disallow rules.",
         )
 
     return CheckResult(
-        id="access", title="CCBot Access Check", status=PASS, weight=WEIGHT,
-        fraction=1.0, summary=f"No AI-crawler disallow and CCBot gets HTTP {ccbot_code}. The door is open.",
+        id="access", title="Training-Crawler Access (CCBot)", status=PASS, weight=WEIGHT,
+        fraction=1.0, summary=f"No training-crawler disallow and CCBot gets HTTP {ccbot_code}. The door is open.",
         details=details, evidence=evidence,
         remediation="",
     )

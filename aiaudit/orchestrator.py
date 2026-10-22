@@ -1,4 +1,4 @@
-"""Run all six checks and assemble an AuditReport.
+"""Run all eight checks and assemble an AuditReport.
 
 The checks are independent network calls, so they run concurrently (the slow
 third-party centrality API no longer serializes everything). Results are cached
@@ -12,19 +12,23 @@ import concurrent.futures
 import time
 from typing import Callable, List, Optional
 
-from .checks import agentic, cc_index, centrality, rendering, robots_waf, structured_data
+from .checks import (agentic, ai_bots, cc_index, centrality, eligibility, rendering,
+                     robots_waf, structured_data)
 from .models import AuditReport, CheckResult, ERROR
 from .safety import assert_public_host
 from .util import normalize_domain
 
-# Order matters for display: most decisive to most strategic.
+# Order matters for display: access first (training, then live retrieval),
+# then capture and representation, then the agentic layer.
 CHECKS: List[Callable[[str], CheckResult]] = [
-    robots_waf.run,       # 1 · access (weight 30)
-    cc_index.run,         # 2 · index coverage (weight 25)
-    centrality.run,       # 3 · harmonic centrality (weight 15)
-    structured_data.run,  # 4 · structured data (weight 15)
-    rendering.run,        # 5 · server-side rendering (weight 15)
-    agentic.run,          # 6 · agentic readiness: AX tree + llms.txt (weight 10)
+    robots_waf.run,       # 1 · training-crawler access, CCBot (weight 20)
+    ai_bots.run,          # 2 · AI search & user-fetch bots (weight 25)
+    eligibility.run,      # 3 · index & snippet eligibility (weight 15)
+    cc_index.run,         # 4 · Common Crawl index coverage (weight 20)
+    centrality.run,       # 5 · harmonic centrality (weight 10)
+    structured_data.run,  # 6 · structured data (weight 10)
+    rendering.run,        # 7 · server-side rendering (weight 15)
+    agentic.run,          # 8 · agentic readiness: AX tree + forms + llms.txt (weight 10)
 ]
 
 # domain -> (expiry_epoch, AuditReport)
@@ -74,5 +78,8 @@ def run_audit(raw_domain: str,
                 progress(done, "")
 
     report = AuditReport(domain=domain, checks=[r for r in results if r is not None])
-    _RESULTS[domain] = (time.time() + _RESULTS_TTL, report)
+    # Don't pin a transient upstream failure (e.g. a Common Crawl timeout) for
+    # the whole TTL — a retry should actually re-run.
+    if not any(c.status == ERROR for c in report.checks):
+        _RESULTS[domain] = (time.time() + _RESULTS_TTL, report)
     return report

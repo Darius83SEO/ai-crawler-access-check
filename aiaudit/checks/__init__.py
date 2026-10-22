@@ -1,1 +1,1 @@
-"""The six audit checks, one module each."""
+"""The eight audit checks, one module each."""

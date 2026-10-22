@@ -17,7 +17,7 @@ import requests
 from ..http import BROWSER_UA
 from ..models import CheckResult, PASS, WARN, INFO, ERROR
 
-WEIGHT = 15.0
+WEIGHT = 10.0
 
 API = "https://webgraph.metehan.ai/api/check"
 # The community API is slow (8–17s warm, more on a cold start), so use a

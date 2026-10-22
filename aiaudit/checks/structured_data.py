@@ -17,7 +17,7 @@ from ..fetcher import fetch_page
 from ..http import BLOCK_CODES
 from ..models import CheckResult, FAIL, PASS, WARN, ERROR
 
-WEIGHT = 15.0
+WEIGHT = 10.0
 
 # Key schema families the guide calls out, each with accepted subtypes.
 KEY_TYPES = {
