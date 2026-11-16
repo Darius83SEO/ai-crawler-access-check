@@ -34,7 +34,7 @@ Answers **three questions**, for any domain:
 | 1 | **Training-crawler access** (weight 20) | Parametric | Can CCBot, GPTBot, ClaudeBot, Google-Extended… reach the site? | `robots.txt` + edge/WAF UA test |
 | 2 | **AI search & user-fetch bots** (25) | Retrieval | Can Googlebot, Bingbot, OAI-SearchBot, Claude-SearchBot, PerplexityBot and ChatGPT-User, Claude-User, Perplexity-User read you? | `robots.txt` + per-bot edge UA test |
 | 3 | **Index & snippet eligibility** (15) | Retrieval | May index-based answers keep and quote the page? | robots meta / X-Robots-Tag (noindex, nosnippet, max-snippet, noarchive, nocache), canonical, sitemap `lastmod` freshness |
-| 4 | **CC Index coverage** (20) | Parametric | Is the domain actually in the archive, how recently? | `index.commoncrawl.org` (free) |
+| 4 | **CC Index coverage** (20) | Parametric | Is the domain actually in the archive, how recently? | Common Crawl index files on `data.commoncrawl.org` (free; index server as fallback) |
 | 5 | **Harmonic Centrality** (10) | Parametric | Is the domain prioritised or deprioritised for crawling? | CC Web Graph via `webgraph.metehan.ai` |
 | 6 | **Structured data** (10) | Both | Is the content easy to represent and attribute? | Schema.org JSON-LD / microdata |
 | 7 | **Server-side rendering** (15) | Both | Does content exist without JavaScript? | raw HTML vs Playwright render |
