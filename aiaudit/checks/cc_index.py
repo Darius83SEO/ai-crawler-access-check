@@ -13,7 +13,7 @@ import re
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 import requests
 
@@ -67,8 +67,12 @@ def _surt_prefix(domain: str) -> str:
     return ",".join(reversed(host.split("."))) + ")/"
 
 
-def _query_crawl_data(crawl_id: str, domain: str) -> Tuple[int, Optional[str], bool]:
-    """Same output as _query_crawl, read from the zipnum index files."""
+def _data_blocks(crawl_id: str, domain: str) -> Tuple[str, List[Tuple], bool]:
+    """Locate the cdx blocks holding the domain's records.
+
+    Returns (surt_prefix, blocks, more): blocks are (key, shard, offset, length),
+    `more` is True when the domain continues past the MAX_BLOCKS we kept.
+    """
     idx_url = f"{DATA_BASE}{crawl_id}/indexes/cluster.idx"
     size = int(requests.head(idx_url, headers={"User-Agent": BROWSER_UA}, timeout=20)
                .headers["Content-Length"])
@@ -109,8 +113,15 @@ def _query_crawl_data(crawl_id: str, domain: str) -> Tuple[int, Optional[str], b
             more = True
             break
         blocks.append(e)
+    return prefix, blocks, more
 
-    seen, latest, n = set(), None, 0
+
+def iter_records_from_data(crawl_id: str, domain: str,
+                           located: Optional[Tuple] = None) -> Iterator[Tuple[str, Dict]]:
+    """Yield (urlkey, record) for the domain's status-200 captures in a crawl.
+    Each record is the CDX JSON (url, filename, offset, length…) plus timestamp.
+    `located` reuses a _data_blocks() result."""
+    prefix, blocks, _ = located or _data_blocks(crawl_id, domain)
     for _, shard, off, length in blocks:
         data = _data_get(f"{DATA_BASE}{crawl_id}/indexes/{shard}", off, off + length - 1).content
         for raw in zlib.decompress(data, 16 + zlib.MAX_WBITS).decode("utf-8", "replace").splitlines():
@@ -121,14 +132,23 @@ def _query_crawl_data(crawl_id: str, domain: str) -> Tuple[int, Optional[str], b
                 rec = json.loads(js)
             except json.JSONDecodeError:
                 continue
-            if rec.get("status") != "200":
-                continue
-            n += 1
-            seen.add(key)
-            if latest is None or ts > latest:
-                latest = ts
-            if n >= PAGE_CAP:
-                return len(seen), latest, True
+            if rec.get("status") == "200":
+                rec["timestamp"] = ts
+                yield key, rec
+
+
+def _query_crawl_data(crawl_id: str, domain: str) -> Tuple[int, Optional[str], bool]:
+    """Same output as _query_crawl, read from the zipnum index files."""
+    located = _data_blocks(crawl_id, domain)
+    more = located[2]
+    seen, latest, n = set(), None, 0
+    for key, rec in iter_records_from_data(crawl_id, domain, located):
+        n += 1
+        seen.add(key)
+        if latest is None or rec["timestamp"] > latest:
+            latest = rec["timestamp"]
+        if n >= PAGE_CAP:
+            return len(seen), latest, True
     return len(seen), latest, more
 
 

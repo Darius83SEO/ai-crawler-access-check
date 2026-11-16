@@ -31,8 +31,38 @@ def _gunzip(data: bytes) -> bytes:
 
 def _recent_crawls(n: int):
     # Imported lazily to avoid any import cycle with the checks package.
-    from .checks.cc_index import get_recent_crawls
-    return get_recent_crawls(n)
+    from .checks.cc_index import get_recent_crawls, get_recent_crawls_from_data
+    try:
+        return get_recent_crawls_from_data(n)
+    except Exception:
+        return get_recent_crawls(n)
+
+
+def _crawl_records(c: Dict, domain: str):
+    """Status-200 CDX records for the domain in one crawl: from the index files
+    on data.commoncrawl.org, or from the index server when that is the source."""
+    from .checks.cc_index import iter_records_from_data
+    if not c.get("cdx-api"):
+        recs = []
+        for _, rec in iter_records_from_data(c["id"], domain):
+            recs.append(rec)
+            if len(recs) >= 200:
+                break
+        return recs
+    url = f"{c['cdx-api']}?url={domain}/*&output=json&limit=200&filter=status:200"
+    r = requests.get(url, headers={"User-Agent": BROWSER_UA}, timeout=15)
+    if r.status_code != 200 or not r.text.strip():
+        return []
+    recs = []
+    for line in r.text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            recs.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return recs
 
 
 def _is_homepage(url: str) -> bool:
@@ -49,24 +79,11 @@ def _find_capture(domain: str) -> Optional[Dict]:
     the homepage. Uses the /* wildcard because the bare homepage is frequently
     only a redirect/403 in the archive."""
     for c in _recent_crawls(_CRAWLS_TO_TRY):
-        url = f"{c['cdx-api']}?url={domain}/*&output=json&limit=200&filter=status:200"
         try:
-            r = requests.get(url, headers={"User-Agent": BROWSER_UA}, timeout=15)
+            recs = [rec for rec in _crawl_records(c, domain)
+                    if "/warc/" in rec.get("filename", "")]  # skip redirects/diagnostics
         except Exception:
             continue
-        if r.status_code != 200 or not r.text.strip():
-            continue
-        recs = []
-        for line in r.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if "/warc/" in rec.get("filename", ""):  # skip redirects/diagnostics
-                recs.append(rec)
         if recs:
             homes = [x for x in recs if _is_homepage(x.get("url", ""))]
             pool = homes or recs
