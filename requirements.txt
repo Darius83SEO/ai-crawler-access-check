@@ -1,4 +1,4 @@
-# Lite build: no browser needed. Bump this line to force a full restart on Streamlit Cloud (2026-11-16).
+# Lite build: no browser needed. Bump this line to force a full restart on Streamlit Cloud (2026-11-16b).
 streamlit>=1.30
 requests>=2.31
 beautifulsoup4>=4.12
